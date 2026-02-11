@@ -109,3 +109,4 @@ export { default as degenerateRnaToAminoAcidMap } from "./degenerateRnaToAminoAc
 export { default as getMassOfAaString } from "./getMassOfAaString";
 export { default as shiftAnnotationsByLen } from "./shiftAnnotationsByLen";
 export { default as adjustAnnotationsToInsert } from "./adjustAnnotationsToInsert";
+export { default as runNeedlemanWunschAlignment } from "./runNeedlemanWunschAlignment";
