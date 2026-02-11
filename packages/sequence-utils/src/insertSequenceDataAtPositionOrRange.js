@@ -27,15 +27,15 @@ export default function insertSequenceDataAtPositionOrRange(
     ...options
   });
   const newSequenceData = cloneDeep(existingSequenceData);
+  newSequenceData.chromatogramData = getSyncedChromatogramDataOrFallback(
+    newSequenceData.chromatogramData,
+    newSequenceData.sequence.length
+  );
   const insertLength =
     sequenceDataToInsert.isProtein && sequenceDataToInsert.proteinSequence
       ? sequenceDataToInsert.proteinSequence.length * 3
       : sequenceDataToInsert.sequence.length;
   let caretPosition = caretPositionOrRange;
-
-  const isInsertSameLengthAsSelection =
-    sequenceDataToInsert.sequence.length ===
-    getRangeLength(caretPositionOrRange, existingSequenceData.sequence.length);
 
   if (
     caretPositionOrRange.start > -1 &&
@@ -72,7 +72,7 @@ export default function insertSequenceDataAtPositionOrRange(
             start: caretPositionOrRange.start,
             end: newSequenceData.sequence.length
           },
-          justBaseCalls: isInsertSameLengthAsSelection
+          includeTraceData: true
         });
         newSequenceData.chromatogramData = trimChromatogram({
           chromatogramData: newSequenceData.chromatogramData,
@@ -80,7 +80,7 @@ export default function insertSequenceDataAtPositionOrRange(
             start: 0,
             end: caretPositionOrRange.end
           },
-          justBaseCalls: isInsertSameLengthAsSelection
+          includeTraceData: true
         });
       } else {
         newSequenceData.chromatogramData = trimChromatogram({
@@ -89,7 +89,7 @@ export default function insertSequenceDataAtPositionOrRange(
             start: caretPositionOrRange.start,
             end: caretPositionOrRange.end
           },
-          justBaseCalls: isInsertSameLengthAsSelection
+          includeTraceData: true
         });
       }
     }
@@ -101,7 +101,7 @@ export default function insertSequenceDataAtPositionOrRange(
             ? caretPositionOrRange.start
             : caretPositionOrRange,
         seqToInsert: sequenceDataToInsert.sequence,
-        justBaseCalls: isInsertSameLengthAsSelection
+        includeTraceData: true
       });
     }
   }
@@ -200,7 +200,7 @@ function insertIntoChromatogram({
   chromatogramData,
   caretPosition,
   seqToInsert,
-  justBaseCalls
+  includeTraceData
 }) {
   if (!seqToInsert.length) return;
 
@@ -210,7 +210,7 @@ function insertIntoChromatogram({
       0,
       ...seqToInsert.split("")
     );
-  if (justBaseCalls) {
+  if (!includeTraceData) {
     //return early if just base calls
     return chromatogramData;
   }
@@ -233,6 +233,8 @@ function insertIntoChromatogram({
     chromatogramData.baseTraces.splice(caretPosition, 0, ...baseTracesToInsert);
   chromatogramData.qualNums &&
     chromatogramData.qualNums.splice(caretPosition, 0, ...qualNumsToInsert);
+  chromatogramData.basePos &&
+    chromatogramData.basePos.splice(caretPosition, 0, ...qualNumsToInsert);
 
   return chromatogramData;
 }
@@ -240,15 +242,45 @@ function insertIntoChromatogram({
 function trimChromatogram({
   chromatogramData,
   range: { start, end },
-  justBaseCalls
+  includeTraceData
 }) {
-  [
-    "baseCalls",
-    ...(justBaseCalls ? [] : ["qualNums", "baseTraces", "basePos"])
-  ].forEach(type => {
+  ["baseCalls", ...(includeTraceData ? ["qualNums", "baseTraces", "basePos"] : [])].forEach(type => {
     chromatogramData[type] &&
       chromatogramData[type].splice(start, end - start + 1);
   });
 
   return chromatogramData;
+}
+
+function getSyncedChromatogramDataOrFallback(chromatogramData, sequenceLength) {
+  if (!chromatogramData) return chromatogramData;
+
+  const lengthsToMatch = {
+    baseCalls: chromatogramData.baseCalls,
+    baseTraces: chromatogramData.baseTraces,
+    qualNums: chromatogramData.qualNums,
+    basePos: chromatogramData.basePos
+  };
+
+  const invalidKey = Object.keys(lengthsToMatch).find(key => {
+    const arr = lengthsToMatch[key];
+    return arr && arr.length !== sequenceLength;
+  });
+
+  if (!invalidKey) return chromatogramData;
+
+  console.error(
+    `Chromatogram data is out of sync with sequence length (${sequenceLength}). Falling back by dropping chromatogramData.`,
+    {
+      sequenceLength,
+      baseCallsLength:
+        chromatogramData.baseCalls && chromatogramData.baseCalls.length,
+      baseTracesLength:
+        chromatogramData.baseTraces && chromatogramData.baseTraces.length,
+      qualNumsLength: chromatogramData.qualNums && chromatogramData.qualNums.length,
+      basePosLength: chromatogramData.basePos && chromatogramData.basePos.length
+    }
+  );
+
+  return undefined;
 }

@@ -476,7 +476,7 @@ describe("insertSequenceData", () => {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ]);
   });
-  it("properly inserts into chromatogramData, keeping the chromatogramData intact if the insert length is the same length as the selection range", () => {
+  it("properly replaces chromatogramData bases, traces, and qualNums when insert length matches the selection range", () => {
     const sequenceToInsert = {
       sequence: "rrr"
     };
@@ -484,6 +484,7 @@ describe("insertSequenceData", () => {
       sequence: "atgagag",
       chromatogramData: {
         baseCalls: ["G", "G", "C", "G", "T", "G", "G"],
+        qualNums: [10, 11, 12, 13, 14, 15, 16],
         baseTraces: [
           {
             aTrace: [0, 2, 6, 8],
@@ -549,7 +550,81 @@ describe("insertSequenceData", () => {
     ]);
     postInsertSeq.chromatogramData.baseTraces.length.should.equal(7);
     postInsertSeq.chromatogramData.baseTraces[4].aTrace.should.deep.equal([
-      0, 2, 6, 8
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ]);
+    postInsertSeq.chromatogramData.qualNums.should.deep.equal([
+      10,
+      11,
+      12,
+      0,
+      0,
+      0,
+      16
+    ]);
+  });
+
+  it("properly deletes a base from chromatogramData and keeps lengths in sync", () => {
+    const sequenceToInsert = {
+      sequence: ""
+    };
+    const sequenceToInsertInto = {
+      sequence: "atgag",
+      chromatogramData: {
+        baseCalls: ["A", "T", "G", "A", "G"],
+        qualNums: [1, 2, 3, 4, 5],
+        baseTraces: [
+          { aTrace: [1], cTrace: [1], gTrace: [1], tTrace: [1] },
+          { aTrace: [2], cTrace: [2], gTrace: [2], tTrace: [2] },
+          { aTrace: [3], cTrace: [3], gTrace: [3], tTrace: [3] },
+          { aTrace: [4], cTrace: [4], gTrace: [4], tTrace: [4] },
+          { aTrace: [5], cTrace: [5], gTrace: [5], tTrace: [5] }
+        ]
+      }
+    };
+    const range = { start: 2, end: 2 };
+    const postInsertSeq = insertSequenceDataAtPositionOrRange(
+      sequenceToInsert,
+      sequenceToInsertInto,
+      range
+    );
+
+    postInsertSeq.sequence.should.equal("atag");
+    postInsertSeq.chromatogramData.baseCalls.should.deep.equal([
+      "A",
+      "T",
+      "A",
+      "G"
+    ]);
+    postInsertSeq.chromatogramData.qualNums.should.deep.equal([1, 2, 4, 5]);
+    postInsertSeq.chromatogramData.baseTraces.length.should.equal(4);
+    postInsertSeq.chromatogramData.baseCalls.length.should.equal(
+      postInsertSeq.sequence.length
+    );
+    postInsertSeq.chromatogramData.baseTraces.length.should.equal(
+      postInsertSeq.sequence.length
+    );
+    postInsertSeq.chromatogramData.qualNums.length.should.equal(
+      postInsertSeq.sequence.length
+    );
+  });
+
+  it("drops out-of-sync chromatogramData via safe fallback", () => {
+    const postInsertSeq = insertSequenceDataAtPositionOrRange(
+      { sequence: "c" },
+      {
+        sequence: "atg",
+        chromatogramData: {
+          baseCalls: ["A", "T", "G"],
+          baseTraces: [
+            { aTrace: [1], cTrace: [1], gTrace: [1], tTrace: [1] },
+            { aTrace: [2], cTrace: [2], gTrace: [2], tTrace: [2] }
+          ]
+        }
+      },
+      1
+    );
+
+    postInsertSeq.sequence.should.equal("actg");
+    assert.equal(postInsertSeq.chromatogramData, undefined);
   });
 });
