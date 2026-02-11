@@ -92,6 +92,7 @@ export { default as rotateBpsToPosition } from "./rotateBpsToPosition";
 export { default as threeLetterSequenceStringToAminoAcidMap } from "./threeLetterSequenceStringToAminoAcidMap";
 export { default as tidyUpSequenceData } from "./tidyUpSequenceData";
 export { default as tidyUpAnnotation } from "./tidyUpAnnotation";
+export { default as trimSangerReadByQuality } from "./trimSangerReadByQuality";
 export { default as condensePairwiseAlignmentDifferences } from "./condensePairwiseAlignmentDifferences";
 export { default as addGapsToSeqReads } from "./addGapsToSeqReads";
 export { default as calculateNebTm } from "./calculateNebTm";

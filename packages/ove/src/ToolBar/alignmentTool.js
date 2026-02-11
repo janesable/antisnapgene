@@ -13,6 +13,7 @@ import { flatMap } from "lodash-es";
 import uniqid from "shortid";
 import { cloneDeep } from "lodash-es";
 import classNames from "classnames";
+import { trimSangerReadByQuality } from "@teselagen/sequence-utils";
 
 import ToolbarItem from "./ToolbarItem";
 import { connectToEditor } from "../withEditorProps";
@@ -122,28 +123,14 @@ class AlignmentTool extends React.Component {
       // trimming any sequences with chromatogram data
       for (let i = 0; i < addedSequencesToUseTrimmed.length; i++) {
         if ("chromatogramData" in addedSequencesToUseTrimmed[i]) {
-          // if (addedSequencesToUseTrimmed[i].chromatogramData.qualNums) {
-          if ("qualNums" in addedSequencesToUseTrimmed[i].chromatogramData) {
-            // returning bp pos for { suggestedTrimStart, suggestedTrimEnd }
-            const { suggestedTrimStart, suggestedTrimEnd } = mottTrim(
-              addedSequencesToUseTrimmed[i].chromatogramData.qualNums
-            );
-            addedSequencesToUseTrimmed[i].sequence = addedSequencesToUseTrimmed[
-              i
-            ].sequence.slice(suggestedTrimStart, suggestedTrimEnd + 1);
-            const elementsToTrim = ["baseCalls", "basePos", "qualNums"];
-            // eslint-disable-next-line no-unused-vars
-            for (const element in addedSequencesToUseTrimmed[i]
-              .chromatogramData) {
-              if (elementsToTrim.indexOf(element) !== -1) {
-                addedSequencesToUseTrimmed[i].chromatogramData[element] =
-                  addedSequencesToUseTrimmed[i].chromatogramData[element].slice(
-                    suggestedTrimStart,
-                    suggestedTrimEnd + 1
-                  );
-              }
-            }
-          }
+          const { trimmedSequence, trimmedChromatogramData } =
+            trimSangerReadByQuality({
+              sequence: addedSequencesToUseTrimmed[i].sequence,
+              chromatogramData: addedSequencesToUseTrimmed[i].chromatogramData
+            });
+          addedSequencesToUseTrimmed[i].sequence = trimmedSequence;
+          addedSequencesToUseTrimmed[i].chromatogramData =
+            trimmedChromatogramData;
         }
       }
     }
@@ -464,40 +451,3 @@ const AddYourOwnSeqForm = reduxForm({
     </form>
   );
 });
-
-function mottTrim(qualNums) {
-  if (!qualNums) return;
-  let startPos = 0;
-  let endPos = 0;
-  const totalScoreInfo = [];
-  let score = 0;
-  let totalScore = 0;
-  const cutoff = 0.05;
-  for (let i = 0; i < qualNums.length; i++) {
-    // low-quality bases have high error probabilities, so may have a negative base score
-    score = cutoff - Math.pow(10, qualNums[i] / -10);
-    totalScore += score;
-    totalScoreInfo.push(totalScore);
-    // score = score + cutoff - Math.pow(10, qualNums[i] / -10);
-    // if (totalScore < 0) {
-    //   tempStart = i;
-    // }
-    // if (i - tempStart > endPos - startPos) {
-    //   startPos = tempStart;
-    //   endPos = i;
-    // }
-    if (totalScore < 0) {
-      totalScore = 0;
-    }
-  }
-  const firstPositiveValue = totalScoreInfo.find(e => {
-    return e > 0;
-  });
-  startPos = totalScoreInfo.indexOf(firstPositiveValue);
-  const highestValue = Math.max(...totalScoreInfo);
-  endPos = totalScoreInfo.lastIndexOf(highestValue);
-  return {
-    suggestedTrimStart: startPos,
-    suggestedTrimEnd: endPos
-  };
-}
