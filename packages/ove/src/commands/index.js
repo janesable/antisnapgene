@@ -149,8 +149,23 @@ const fileCommandDefs = {
     handler: props => {
       showFileDialog({
         multiple: false,
+        accept: ".ab1,.gb,.gbk,.fasta,.fas,.fa,.fna,.ffn,.faa,.fastq,.seq,.xml,.rdf,.json,.gff,.gff3,.dna,.prot,.geneious",
         onSelect: files => {
           props.importSequenceFromFile(files[0]);
+        }
+      });
+    }
+  },
+  importAb1Sequence: {
+    name: "Import AB1…",
+    isHidden: props => props.hideSingleImport,
+    isDisabled: props => props.readOnly,
+    handler: props => {
+      showFileDialog({
+        multiple: false,
+        accept: ".ab1",
+        onSelect: files => {
+          props.importSequenceFromFile(files[0], { forceType: "ab1" });
         }
       });
     }

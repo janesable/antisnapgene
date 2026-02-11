@@ -2,7 +2,7 @@
 let hiddenInput;
 let callback;
 
-function getInput(multiple) {
+function getInput({ multiple, accept }) {
   if (!hiddenInput) {
     hiddenInput = document.createElement("input");
     hiddenInput.type = "file";
@@ -15,11 +15,12 @@ function getInput(multiple) {
     document.body.appendChild(hiddenInput);
   }
   hiddenInput.multiple = multiple ? "multiple" : undefined;
+  hiddenInput.accept = accept || "";
   return hiddenInput;
 }
 
-export default function showFileDialog({ multiple = false, onSelect }) {
-  const input = getInput(multiple);
+export default function showFileDialog({ multiple = false, onSelect, accept }) {
+  const input = getInput({ multiple, accept });
   callback = onSelect;
   input.click();
 }

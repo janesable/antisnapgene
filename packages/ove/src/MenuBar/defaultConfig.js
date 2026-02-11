@@ -36,6 +36,7 @@ export default [
       { cmd: "toggleReadOnlyMode", shouldDismissPopover: false },
       "--",
       "importSequence",
+      "importAb1Sequence",
       {
         text: "Export Sequence",
         showInSearchMenu: true,

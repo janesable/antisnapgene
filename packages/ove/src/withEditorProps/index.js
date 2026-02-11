@@ -235,10 +235,28 @@ export const importSequenceFromFile =
   props =>
   async (file, opts = {}) => {
     const { onImport } = props;
-    const result = await anyToJson(file, { acceptParts: true, ...opts });
-    // TODO maybe handle import errors/warnings better
-    const failed = !result[0].success;
-    const messages = result[0].messages;
+    let result;
+    const isAb1Import =
+      opts.forceType === "ab1" ||
+      (file && file.name && /\.ab1$/i.test(file.name));
+
+    try {
+      result = await anyToJson(file, {
+        acceptParts: true,
+        ...opts,
+        ...(opts.forceType === "ab1" && { fileName: file.name || "sequence.ab1" })
+      });
+    } catch (error) {
+      console.error(`Sequence import failed:`, error);
+      const importType = isAb1Import ? "AB1" : "sequence";
+      window.toastr.error(
+        `Unable to parse ${importType} file. Please verify the file is valid and try again.`
+      );
+      return;
+    }
+
+    const failed = !result?.[0]?.success;
+    const messages = result?.[0]?.messages;
     if (isArray(messages)) {
       messages.forEach(msg => {
         const type = msg.substr(0, 20).toLowerCase().includes("error")
@@ -250,8 +268,13 @@ export const importSequenceFromFile =
       });
     }
     if (failed) {
+      const importType = isAb1Import ? "AB1" : "sequence";
+      const details =
+        isArray(messages) && messages.length
+          ? messages.join("; ")
+          : "No parser details available.";
       window.toastr.error(
-        "Error importing sequence(s). See console for more errors"
+        `Unable to parse ${importType} file. ${details}`
       );
       console.error(`Seq import results:`, result);
     } else if (result.length > 1) {
@@ -271,16 +294,30 @@ export const importSequenceFromFile =
       }
 
       if (seqData) {
-        seqData.stateTrackingId = shortid();
+        const normalizedSeqData = tidyUpSequenceData(seqData, {
+          acceptParts: true,
+          getAcceptedInsertChars: props.getAcceptedInsertChars
+        });
+        normalizedSeqData.stateTrackingId = shortid();
+
+        if (normalizedSeqData.chromatogramData) {
+          props.annotationVisibilityShow("chromatogram");
+          if (normalizedSeqData.chromatogramData.qualNums) {
+            localStorage.setItem("showChromQualScores", JSON.stringify(true));
+          }
+        }
+
         updateEditor(
           {
             getState: () => ({ VectorEditor: { [props.editorName]: props } }),
             dispatch: props.dispatch
           },
           props.editorName,
-          { sequenceData: seqData }
+          { sequenceData: normalizedSeqData }
         );
-        props.flipActiveTabFromLinearOrCircularIfNecessary(seqData.circular);
+        props.flipActiveTabFromLinearOrCircularIfNecessary(
+          normalizedSeqData.circular
+        );
 
         window.toastr.success("Sequence Imported");
       }
