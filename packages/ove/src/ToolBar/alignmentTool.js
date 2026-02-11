@@ -100,12 +100,152 @@ class AlignmentTool extends React.Component {
   state = {
     templateSeqIndex: 0
   };
+
+  getSequenceTrimBounds = addedSequence => {
+    const sequenceLength = (addedSequence.sequence || "").length;
+    const baseCallsLength =
+      addedSequence.chromatogramData && addedSequence.chromatogramData.baseCalls
+        ? addedSequence.chromatogramData.baseCalls.length
+        : sequenceLength;
+    const maxLength = Math.min(sequenceLength, baseCallsLength);
+    return {
+      maxLength,
+      maxIndex: Math.max(maxLength - 1, 0)
+    };
+  };
+
+  getNormalizedTrimRange = ({
+    trimStart,
+    trimEnd,
+    maxIndex,
+    fallbackStart = 0,
+    fallbackEnd = maxIndex
+  }) => {
+    const safeStart = Number.isInteger(trimStart) ? trimStart : fallbackStart;
+    const safeEnd = Number.isInteger(trimEnd) ? trimEnd : fallbackEnd;
+    const normalizedStart = Math.max(0, Math.min(safeStart, maxIndex));
+    const normalizedEnd = Math.max(normalizedStart, Math.min(safeEnd, maxIndex));
+    return {
+      trimStart: normalizedStart,
+      trimEnd: normalizedEnd
+    };
+  };
+
+  updateSelectedSequenceTrim = ({ fields, index, trimStart, trimEnd }) => {
+    const selectedSequence = fields.get(index);
+    if (!selectedSequence) return;
+    const { maxIndex } = this.getSequenceTrimBounds(selectedSequence);
+    const normalizedTrim = this.getNormalizedTrimRange({
+      trimStart,
+      trimEnd,
+      maxIndex,
+      fallbackStart: selectedSequence.trimStart,
+      fallbackEnd: selectedSequence.trimEnd
+    });
+    fields.remove(index);
+    fields.insert(index, {
+      ...selectedSequence,
+      ...normalizedTrim
+    });
+  };
+
+  trimSingleSequence = ({
+    addedSequence,
+    isAutotrimmedSeq,
+    shouldApplyManualTrim
+  }) => {
+    if (!addedSequence) return addedSequence;
+    const output = cloneDeep(addedSequence);
+    const { maxLength, maxIndex } = this.getSequenceTrimBounds(output);
+    if (!maxLength) {
+      output.sequence = "";
+      return output;
+    }
+
+    let finalTrimRange = this.getNormalizedTrimRange({
+      trimStart: output.trimStart,
+      trimEnd: output.trimEnd,
+      maxIndex
+    });
+
+    if (!shouldApplyManualTrim) {
+      finalTrimRange = { trimStart: 0, trimEnd: maxIndex };
+    }
+
+    if (
+      isAutotrimmedSeq &&
+      output.chromatogramData &&
+      output.chromatogramData.qualNums
+    ) {
+      const { suggestedTrimStart = 0, suggestedTrimEnd = maxIndex } = mottTrim(
+        output.chromatogramData.qualNums
+      );
+      const autoRange = this.getNormalizedTrimRange({
+        trimStart: suggestedTrimStart,
+        trimEnd: suggestedTrimEnd,
+        maxIndex
+      });
+      finalTrimRange = {
+        trimStart: Math.max(finalTrimRange.trimStart, autoRange.trimStart),
+        trimEnd: Math.min(finalTrimRange.trimEnd, autoRange.trimEnd)
+      };
+      if (finalTrimRange.trimEnd < finalTrimRange.trimStart) {
+        finalTrimRange = autoRange;
+      }
+    }
+
+    const { trimStart, trimEnd } = finalTrimRange;
+    output.sequence = (output.sequence || "").slice(trimStart, trimEnd + 1);
+
+    if (output.chromatogramData) {
+      const originalBasePos = output.chromatogramData.basePos
+        ? [...output.chromatogramData.basePos]
+        : undefined;
+
+      const elementsToTrim = ["baseCalls", "basePos", "qualNums"];
+      elementsToTrim.forEach(element => {
+        if (output.chromatogramData[element]) {
+          output.chromatogramData[element] = output.chromatogramData[
+            element
+          ].slice(trimStart, trimEnd + 1);
+        }
+      });
+
+      if (output.chromatogramData.baseTraces) {
+        const traceStart =
+          originalBasePos && originalBasePos.length > trimStart
+            ? originalBasePos[trimStart]
+            : 0;
+        const traceEndExclusive =
+          originalBasePos && originalBasePos.length > trimEnd + 1
+            ? originalBasePos[trimEnd + 1]
+            : undefined;
+        Object.keys(output.chromatogramData.baseTraces).forEach(traceKey => {
+          const traceValues = output.chromatogramData.baseTraces[traceKey];
+          if (!traceValues || !traceValues.slice) return;
+          output.chromatogramData.baseTraces[traceKey] = traceValues.slice(
+            traceStart,
+            traceEndExclusive
+          );
+        });
+        if (output.chromatogramData.basePos) {
+          output.chromatogramData.basePos = output.chromatogramData.basePos.map(
+            position => position - traceStart
+          );
+        }
+      }
+    }
+
+    return output;
+  };
+
   sendSelectedDataToBackendForAlignment = async values => {
     const {
       addedSequences,
       isPairwiseAlignment,
       isAlignToRefSeq,
-      isAutotrimmedSeq
+      isAutotrimmedSeq,
+      shouldApplyManualTrim
     } = values;
     const {
       hideModal,
@@ -116,43 +256,16 @@ class AlignmentTool extends React.Component {
     const { templateSeqIndex } = this.state;
     const addedSequencesToUse = array_move(addedSequences, templateSeqIndex, 0);
 
-    let addedSequencesToUseTrimmed;
-    if (isAutotrimmedSeq) {
-      addedSequencesToUseTrimmed = cloneDeep(addedSequencesToUse);
-      // trimming any sequences with chromatogram data
-      for (let i = 0; i < addedSequencesToUseTrimmed.length; i++) {
-        if ("chromatogramData" in addedSequencesToUseTrimmed[i]) {
-          // if (addedSequencesToUseTrimmed[i].chromatogramData.qualNums) {
-          if ("qualNums" in addedSequencesToUseTrimmed[i].chromatogramData) {
-            // returning bp pos for { suggestedTrimStart, suggestedTrimEnd }
-            const { suggestedTrimStart, suggestedTrimEnd } = mottTrim(
-              addedSequencesToUseTrimmed[i].chromatogramData.qualNums
-            );
-            addedSequencesToUseTrimmed[i].sequence = addedSequencesToUseTrimmed[
-              i
-            ].sequence.slice(suggestedTrimStart, suggestedTrimEnd + 1);
-            const elementsToTrim = ["baseCalls", "basePos", "qualNums"];
-            // eslint-disable-next-line no-unused-vars
-            for (const element in addedSequencesToUseTrimmed[i]
-              .chromatogramData) {
-              if (elementsToTrim.indexOf(element) !== -1) {
-                addedSequencesToUseTrimmed[i].chromatogramData[element] =
-                  addedSequencesToUseTrimmed[i].chromatogramData[element].slice(
-                    suggestedTrimStart,
-                    suggestedTrimEnd + 1
-                  );
-              }
-            }
-          }
-        }
-      }
-    }
-    let seqsToAlign;
-    if (addedSequencesToUseTrimmed) {
-      seqsToAlign = addedSequencesToUseTrimmed;
-    } else {
-      seqsToAlign = addedSequencesToUse;
-    }
+    const shouldTrimSequences = isAutotrimmedSeq || shouldApplyManualTrim;
+    const seqsToAlign = shouldTrimSequences
+      ? addedSequencesToUse.map(addedSequence => {
+          return this.trimSingleSequence({
+            addedSequence,
+            isAutotrimmedSeq,
+            shouldApplyManualTrim
+          });
+        })
+      : addedSequencesToUse;
 
     hideModal();
     const alignmentId = uniqid();
@@ -273,6 +386,21 @@ class AlignmentTool extends React.Component {
     const { handleSubmit } = this.props;
 
     const sequencesToAlign = fields.getAll() || [];
+    const selectedSequence = sequencesToAlign[templateSeqIndex];
+    const selectedTrimBounds = selectedSequence
+      ? this.getSequenceTrimBounds(selectedSequence)
+      : undefined;
+    const selectedTrimRange = selectedSequence
+      ? this.getNormalizedTrimRange({
+          trimStart: selectedSequence.trimStart,
+          trimEnd: selectedSequence.trimEnd,
+          maxIndex: selectedTrimBounds.maxIndex
+        })
+      : undefined;
+    const trimmedLength = selectedTrimRange
+      ? selectedTrimRange.trimEnd - selectedTrimRange.trimStart + 1
+      : 0;
+
     return (
       <div>
         <h6>Or enter sequences in plain text format</h6>
@@ -343,6 +471,101 @@ class AlignmentTool extends React.Component {
             })}
           </div>
           <br />
+          <CheckboxField
+            name="shouldApplyManualTrim"
+            style={{ display: "flex", alignItems: "center" }}
+            label={
+              <div>
+                Trim Selected Sequence Range
+                <span style={{ fontSize: 11 }}>
+                  {" "}
+                  Select a sequence from the list and adjust trim start/end
+                  before alignment.
+                </span>
+              </div>
+            }
+          />
+          {selectedSequence && selectedTrimBounds && (
+            <div style={{ marginTop: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, marginBottom: 4 }}>
+                {selectedSequence.name} trim preview: {selectedTrimRange.trimStart}
+                -{selectedTrimRange.trimEnd} ({trimmedLength} bp after trim)
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ minWidth: 35, fontSize: 12 }}>Start</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={selectedTrimBounds.maxIndex}
+                  value={selectedTrimRange.trimStart}
+                  onChange={e => {
+                    this.updateSelectedSequenceTrim({
+                      fields,
+                      index: templateSeqIndex,
+                      trimStart: Number(e.target.value),
+                      trimEnd: selectedTrimRange.trimEnd
+                    });
+                  }}
+                  style={{ width: 180 }}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={selectedTrimRange.trimEnd}
+                  value={selectedTrimRange.trimStart}
+                  onChange={e => {
+                    this.updateSelectedSequenceTrim({
+                      fields,
+                      index: templateSeqIndex,
+                      trimStart: Number(e.target.value),
+                      trimEnd: selectedTrimRange.trimEnd
+                    });
+                  }}
+                  style={{ width: 80 }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 4
+                }}
+              >
+                <span style={{ minWidth: 35, fontSize: 12 }}>End</span>
+                <input
+                  type="range"
+                  min={selectedTrimRange.trimStart}
+                  max={selectedTrimBounds.maxIndex}
+                  value={selectedTrimRange.trimEnd}
+                  onChange={e => {
+                    this.updateSelectedSequenceTrim({
+                      fields,
+                      index: templateSeqIndex,
+                      trimStart: selectedTrimRange.trimStart,
+                      trimEnd: Number(e.target.value)
+                    });
+                  }}
+                  style={{ width: 180 }}
+                />
+                <input
+                  type="number"
+                  min={selectedTrimRange.trimStart}
+                  max={selectedTrimBounds.maxIndex}
+                  value={selectedTrimRange.trimEnd}
+                  onChange={e => {
+                    this.updateSelectedSequenceTrim({
+                      fields,
+                      index: templateSeqIndex,
+                      trimStart: selectedTrimRange.trimStart,
+                      trimEnd: Number(e.target.value)
+                    });
+                  }}
+                  style={{ width: 80 }}
+                />
+              </div>
+            </div>
+          )}
           <CheckboxField
             name="isPairwiseAlignment"
             style={{ display: "flex", alignItems: "center" }}
