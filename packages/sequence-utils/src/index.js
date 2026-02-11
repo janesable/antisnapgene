@@ -93,6 +93,7 @@ export { default as threeLetterSequenceStringToAminoAcidMap } from "./threeLette
 export { default as tidyUpSequenceData } from "./tidyUpSequenceData";
 export { default as tidyUpAnnotation } from "./tidyUpAnnotation";
 export { default as condensePairwiseAlignmentDifferences } from "./condensePairwiseAlignmentDifferences";
+export { default as runNeedlemanWunschAlignment } from "./runNeedlemanWunschAlignment";
 export { default as addGapsToSeqReads } from "./addGapsToSeqReads";
 export { default as calculateNebTm } from "./calculateNebTm";
 export { default as calculateNebTa } from "./calculateNebTa";

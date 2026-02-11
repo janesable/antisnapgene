@@ -9,6 +9,7 @@ import {
 } from "@teselagen/ui";
 import { reduxForm, FieldArray } from "redux-form";
 import { anyToJson } from "@teselagen/bio-parsers";
+import { runNeedlemanWunschAlignment } from "@teselagen/sequence-utils";
 import { flatMap } from "lodash-es";
 import uniqid from "shortid";
 import { cloneDeep } from "lodash-es";
@@ -105,7 +106,8 @@ class AlignmentTool extends React.Component {
       addedSequences,
       isPairwiseAlignment,
       isAlignToRefSeq,
-      isAutotrimmedSeq
+      isAutotrimmedSeq,
+      useOfflineAlignment
     } = values;
     const {
       hideModal,
@@ -174,7 +176,11 @@ class AlignmentTool extends React.Component {
 
     // const j5server = process.env.REMOTE_J5 || "http://j5server.teselagen.com"
 
-    window.toastr.success("Alignment submitted.");
+    window.toastr.success(
+      `Alignment submitted using ${
+        useOfflineAlignment ? "offline" : "server"
+      } mode.`
+    );
     const replaceProtocol = url => {
       return url.replace("http://", window.location.protocol + "//");
     };
@@ -187,22 +193,60 @@ class AlignmentTool extends React.Component {
       };
     });
 
-    const {
-      alignedSequences: _alignedSequences,
-      pairwiseAlignments,
-      alignmentsToRefSeq
-    } = await (
-      await fetch({
-        url: replaceProtocol("http://j5server.teselagen.com/alignment/run"),
-        method: "post",
-        body: JSON.stringify({
-          //only send over the bear necessities :)
-          sequencesToAlign: seqInfoToSend,
-          isPairwiseAlignment,
-          isAlignToRefSeq
+    let _alignedSequences;
+    let pairwiseAlignments;
+    let alignmentsToRefSeq;
+
+    if (useOfflineAlignment) {
+      const [reference, ...reads] = seqsToAlign;
+      pairwiseAlignments = reads.map(read => {
+        const alignmentResult = runNeedlemanWunschAlignment(
+          reference.sequence,
+          read.sequence
+        );
+        const [alignedReference = {}, alignedRead = {}] =
+          alignmentResult?.pairwiseAlignment || alignmentResult || [];
+        return [
+          {
+            sequenceData: reference,
+            alignmentData: {
+              ...(alignedReference.alignmentData || alignedReference),
+              sequence:
+                (alignedReference.alignmentData || alignedReference).sequence ||
+                reference.sequence
+            },
+            chromatogramData: reference.chromatogramData
+          },
+          {
+            sequenceData: read,
+            alignmentData: {
+              ...(alignedRead.alignmentData || alignedRead),
+              sequence:
+                (alignedRead.alignmentData || alignedRead).sequence ||
+                read.sequence
+            },
+            chromatogramData: read.chromatogramData
+          }
+        ];
+      });
+    } else {
+      ({
+        alignedSequences: _alignedSequences,
+        pairwiseAlignments,
+        alignmentsToRefSeq
+      } = await (
+        await fetch({
+          url: replaceProtocol("http://j5server.teselagen.com/alignment/run"),
+          method: "post",
+          body: JSON.stringify({
+            //only send over the bear necessities :)
+            sequencesToAlign: seqInfoToSend,
+            isPairwiseAlignment,
+            isAlignToRefSeq
+          })
         })
-      })
-    ).json();
+      ).json());
+    }
 
     // alignmentsToRefSeq set to alignedSequences for now
     let alignedSequences = _alignedSequences;
@@ -217,6 +261,9 @@ class AlignmentTool extends React.Component {
       pairwiseAlignments:
         pairwiseAlignments &&
         pairwiseAlignments.map((alignedSequences, topIndex) => {
+          if (alignedSequences[0]?.sequenceData && alignedSequences[1]?.sequenceData) {
+            return alignedSequences;
+          }
           return alignedSequences.map((alignmentData, innerIndex) => {
             return {
               sequenceData: seqsToAlign[innerIndex > 0 ? topIndex + 1 : 0],
@@ -365,6 +412,19 @@ class AlignmentTool extends React.Component {
                 Align Sequencing Reads to Reference Sequence{" "}
                 <span style={{ fontSize: 11 }}>
                   Align short sequencing reads to a long reference sequence
+                </span>
+              </div>
+            }
+          />
+          <CheckboxField
+            name="useOfflineAlignment"
+            style={{ display: "flex", alignItems: "center" }}
+            label={
+              <div>
+                Use Offline Alignment Engine{" "}
+                <span style={{ fontSize: 11 }}>
+                  Run local Needleman-Wunsch alignments without the alignment
+                  server
                 </span>
               </div>
             }
